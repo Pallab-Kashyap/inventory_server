@@ -1,0 +1,174 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id       String   @id @default(uuid())
+  username String
+  email    String   @unique
+  password String
+  role     UserRole @default(BASIC)
+
+  store Store?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Category {
+  id           String  @id @default(uuid())
+  categoryName String
+  displayName  String
+  nestingName  String
+  isActive     Boolean @default(true)
+
+  parentCategoryId String?
+  parentCategory   Category?  @relation("ParentCategory", fields: [parentCategoryId], references: [id])
+  childCategory    Category[] @relation("ParentCategory")
+
+  product     Product[]
+  productBase Product[] @relation("BaseCategory")
+
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Product {
+  id          String  @id @default(uuid())
+  productName String
+  description String?
+  isActive    Boolean @default(true)
+  isSellable  Boolean @default(true)
+
+  categories     Category[]
+  baseCategory   Category?  @relation("BaseCategory", fields: [baseCategoryId], references: [id])
+  baseCategoryId String?
+
+  images           Image[]
+  productVariation ProductVariation[]
+
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productName])
+}
+
+model ProductVariation {
+  id         String  @id @default(uuid())
+  isActive   Boolean @default(true)
+  isSellable Boolean @default(true)
+
+  product   Product @relation(fields: [productId], references: [id])
+  productId String
+
+  variationName String
+  stockQuantity Int
+  price         Decimal
+  sku           String?
+  images        Image[]
+
+  option ProductVariationOption[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ProductVariationOption {
+  id String @id @default(uuid())
+
+  productVariation   ProductVariation @relation(fields: [productVariationId], references: [id])
+  productVariationId String
+
+  optionValue   OptionValue @relation(fields: [optionValueId], references: [id])
+  optionValueId String
+
+  option   Option @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  optionId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productVariationId, optionId])
+}
+
+model Option {
+  id          String @id @default(uuid())
+  optionName  String
+  displayName String
+  isActive Boolean @default(true)
+
+  optionValue      OptionValue[]
+  productVariation ProductVariationOption[]
+
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model OptionValue {
+  id          String @id @default(uuid())
+  optionValue String
+
+  parent   Option @relation(fields: [optionId], references: [id])
+  optionId String
+
+  productVariation ProductVariationOption[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Image {
+  id                String             @id @default(uuid())
+  url               String             @unique
+  publicId          String
+  imageName         String?
+  products          Product[]
+  productVariations ProductVariation[]
+  isPrimary         Boolean            @default(false)
+
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Store {
+  id String @id @default(uuid())
+
+  owner  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @unique
+
+  products   Product[]
+  categories Category[]
+  options    Option[]
+  images     Image[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum UserRole {
+  ADMIN
+  BASIC
+}
