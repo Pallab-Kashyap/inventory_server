@@ -3,8 +3,9 @@ import asyncWrapper from "../utils/asyncWrapper";
 import APIError from "../utils/APIError";
 import prisma from "../config/prisma";
 import { Decimal } from "@prisma/client/runtime/library";
-import { connect } from "http2";
 import APIResponse from "../utils/APIResponse";
+import {v4 as uuidv4} from 'uuid'
+import { Prisma } from "@prisma/client";
 
 interface Option {
   optionId: string,
@@ -12,6 +13,7 @@ interface Option {
 }
 
 interface Variation { 
+  variationName: string
     stock: number
     costPerUnit: Decimal
     image: string[]
@@ -25,92 +27,132 @@ interface ProductData {
     baseCategoryId: string
 }
 
-async function createVariations(productId: string, variationList: Variation[]) {
-    try {
-    
-      for (const variation of variationList) {
+// const encodeAndDecodeCursor = () => {
 
-        const optionValueIds = variation.option.map( opt => opt.optionValueId)
-      
-        const optionValues = await prisma.optionValue.findMany({
-          where: { id: { in: optionValueIds } },
-          select: { optionValue: true, optionId: true },
-        });
-        const variationName = optionValues.map(ov => ov.optionValue).join(', '); 
-  
-      
-        const productVariation = await prisma.productVariation.create({
-          data: {
-            product: { connect: { id: productId } }, 
-            variationName,                           
-            stockQuantity: variation.stock,          
-            price: variation.costPerUnit,           
-            images: {
-              connect: variation.image.map(id => ({ id })), 
-            },
-            isActive: true,                        
-            // sku: generateSKU(),                  
-          },
-        });
-  
+// }
 
-        const productVariationOptions = variation.option.map( opt => ({
-          productVariationId: productVariation.id, 
-          optionValueId: opt.optionValueId,                          
-          optionId: opt.optionId,         
-        }));
+const createVariations = async (
+  tx: Prisma.TransactionClient,
+  productId: string,
+  productVariationList: Variation[]
+) => {
+  const generatedVariations = productVariationList.map((variation) => {
+    const variationId = uuidv4();
 
-        await prisma.productVariationOption.createMany({
-          data: productVariationOptions,
-        });
-      }
-  
-      console.log('Variations created successfully!');
-    } catch (error) {
-      console.error('Error creating variations:', error);
-      throw error;
-    } finally {
-      await prisma.$disconnect(); 
+    return {
+      id: variationId,
+      variationName: variation.variationName,
+      stockQuantity: variation.stock,
+      price: variation.costPerUnit,
+      isActive: true,
+      isSellable: true,
+      productId,
+      imageIds: variation.image,
+    };
+  });
+
+  const productVariationOptions: {
+    productVariationId: string;
+    optionId: string;
+    optionValueId: string;
+  }[] = [];
+
+  for (const variation of generatedVariations) {
+    const original = productVariationList.find(v => v.variationName === variation.variationName)!;
+
+    for (const opt of original.option) {
+      productVariationOptions.push({
+        productVariationId: variation.id,
+        optionId: opt.optionId,
+        optionValueId: opt.optionValueId,
+      });
     }
   }
 
-export const createProduct = asyncWrapper( async(req: Request, res: Response) => {
-    const { productData, variationData } = req.body
+  await tx.productVariation.createMany({
+    data: generatedVariations.map(v => ({
+      id: v.id,
+      variationName: v.variationName,
+      stockQuantity: v.stockQuantity,
+      price: v.price,
+      sku: `SKU-${v.id.slice(0, 6)}`,
+      productId: v.productId,
+      isActive: v.isActive,
+      isSellable: v.isSellable,
+    })),
+  });
 
-    if(!productData || !productData.productName) {
-        throw APIError.badRequest('productName is a required in productData')
+  // Update image connections
+
+  await tx.productVariationOption.createMany({
+    data: productVariationOptions,
+  });
+  await Promise.all(generatedVariations.map(variation =>{
+
+    if(variation.imageIds?.length){
+    
+      prisma.productVariation.update({
+          where: { id: variation.id },
+          data: {
+            images: {
+              connect: variation.imageIds.map(id => ({ id })),
+            },
+          },
+        })
+      }
+      }
+      ));
+};
+
+
+export const createProduct = asyncWrapper(async (req: Request, res: Response) => {
+  const { productData, variationData } = req.body;
+
+  if (!productData || !productData.productName) {
+    throw APIError.badRequest('productName is required in productData');
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    // 1. Create product
+    const product = await tx.product.create({
+      data: {
+        productName: productData.productName,
+        storeId: req.user!.storeId,
+        description: productData.description,
+        baseCategoryId: productData.baseCategoryId,
+        images: {
+          connect: productData.imageIds?.map((id: string) => ({ id })),
+        },
+        categories: {
+          connect: productData.categoryIds?.map((id: string) => ({ id })),
+        },
+      },
+      include: {
+        images: true,
+      },
+    });
+
+    // 2. If variations exist, call variation creation
+    if (variationData && variationData.length > 0) {
+      await createVariations(tx, product.id, variationData);
     }
 
-    const product = await prisma.product.create({
-        data: {
-            productName: productData.productName,
-            storeId: req.user!.storeId,
-            description: productData.description,
-            baseCategoryId: productData.baseCategoryId,
-            images: {
-                connect: productData.imageIds?.map((id : string)=> ({id}))
-            },
-            categories: {
-                connect: productData.categoryIds?.map((id: string) => ({id}))
-            }
-        },
-        include: {
-            images: true
-        }
-    })
+    return product;
+  } ,{
+    timeout: 20000, // timeout in milliseconds (e.g., 20 seconds)
+    maxWait: 5000, // how long to wait for the db to become available
+  })
 
-    await createVariations(product.id, variationData)
+  APIResponse.created(res, '', result);
+});
 
-    APIResponse.created(res, '', product)
-
-})
 
 export const getAllProducts = asyncWrapper( async(req: Request, res: Response) => { 
 
-    // const { limit, page } = req.params
+    const { limit } = req.params
 
-    // const take = parseInt(limit) || 10
-    // const skip = parseInt(page)*take || 0
+    const take = parseInt(limit) || 10
+    const cursor = req.query.cursor as string | undefined;
 
     const products = await prisma.product.findMany({
         where: {
@@ -119,9 +161,13 @@ export const getAllProducts = asyncWrapper( async(req: Request, res: Response) =
         include: {
           images: true,
           productVariation: true
-        }
-        // take,
-        // skip
+        },
+        take,
+        ...(cursor && {
+          cursor: { id: cursor },
+          skip: 1
+        }),
+        orderBy: { id: 'asc'}
     })
 
     return APIResponse.success(res, '', products)

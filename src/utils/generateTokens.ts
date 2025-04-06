@@ -44,18 +44,14 @@ try {
 
 export const verifyToken = (token: string) => {
 try {
-    
         const secret = process.env.ACCESS_TOKEN_SECRET;
     
         if(!secret){
             throw error('ENV missing for token generation')
         }
-    
         const user = jwt.verify(token, secret)
-    
         return user
-} catch (error) {
-    console.log(error);
-    throw error
+}catch (err: any) {
+    throw err.name
 }
 }

@@ -4,16 +4,53 @@ import APIError from "../utils/APIError";
 import prisma from "../config/prisma";
 import APIResponse from "../utils/APIResponse";
 
+/// The raw category type returned by Prisma
+interface RawCategory {
+  id: string;
+  categoryName: string;
+  displayName: string;
+  nestingName: string;
+  isActive: boolean;
+  parentCategoryId: string | null;
+}
+
+// What you transform it into
+interface CategoryTree extends RawCategory {
+  children: CategoryTree[];
+}
+
+function buildCategoryTree(categories: RawCategory[]): CategoryTree[] {
+  const categoryMap: { [id: string]: CategoryTree } = {};
+
+  // Step 1: Initialize categoryMap with children: []
+  categories.forEach((cat) => {
+    categoryMap[cat.id] = { ...cat, children: [] };
+  });
+
+  const tree: CategoryTree[] = [];
+
+  // Step 2: Link children to their parents
+  categories.forEach((cat) => {
+    if (cat.parentCategoryId) {
+      const parent = categoryMap[cat.parentCategoryId];
+      if (parent) {
+        parent.children.push(categoryMap[cat.id]);
+      }
+    } else {
+      tree.push(categoryMap[cat.id]);
+    }
+  });
+
+  return tree;
+}
+
+
+
 export const createCategory = asyncWrapper(async (req: Request, res: Response) => {
-  const { categoryName, parentCategoryId } = req.body
-  let { displayName } = req.body
+  const { categoryName, parentCategoryId, displayName } = req.body
 
-  if(!categoryName){
-    return APIError.badRequest('category name required')
-  }
-
-  if(!displayName){
-    displayName = categoryName
+  if(!categoryName || !displayName){
+    return APIError.badRequest('categoryName and displayName are required')
   }
 
   let nestingName = ''
@@ -29,7 +66,7 @@ export const createCategory = asyncWrapper(async (req: Request, res: Response) =
     })
 
     if(!parent){
-      throw APIError.notFound('Parent category doesn\'t not found')
+      throw APIError.notFound('Parent category not found')
     }
 
     nestingName = parent.nestingName 
@@ -62,12 +99,19 @@ export const getCategories = asyncWrapper( async(req: Request, res: Response) =>
     where: {
       storeId: req.user!.storeId
     },
-    omit: {
-      storeId: true,
-      updatedAt: true,
-      createdAt: true
+    select: {
+      id: true,
+      categoryName: true,
+      displayName: true,
+      nestingName: true,
+      isActive: true,
+      parentCategoryId: true,
     },
-  })
+  });
 
-  return APIResponse.success(res, 'Fetched successfully', categories)
+  // Transform the flat list into a tree structure.
+  const categoryTree = buildCategoryTree(categories);
+
+  // Send the hierarchical response.
+  return APIResponse.success(res, 'Fetched successfully', categoryTree);
 })

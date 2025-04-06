@@ -14,16 +14,31 @@ datasource db {
 }
 
 model User {
-  id       String   @id @default(uuid())
-  username String
-  email    String   @unique
-  password String
-  role     UserRole @default(BASIC)
+  id              String         @id @default(uuid())
+  username        String
+  email           String         @unique
+  password        String
+  role            UserRole       @default(BASIC)
+  rerefreshTokens RefreshToken[]
 
   store Store?
 
+  isDeleted Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String 
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+
+  isDeleted Boolean @default(false)
+
+  createdAt DateTime @default(now())
 }
 
 model Category {
@@ -42,6 +57,8 @@ model Category {
 
   store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
   storeId String
+
+  isDeleted Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -63,6 +80,8 @@ model Product {
 
   store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
   storeId String
+
+  isDeleted Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -86,6 +105,8 @@ model ProductVariation {
 
   option ProductVariationOption[]
 
+  isDeleted Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -102,6 +123,8 @@ model ProductVariationOption {
   option   Option @relation(fields: [optionId], references: [id], onDelete: Cascade)
   optionId String
 
+  isDeleted Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -109,16 +132,18 @@ model ProductVariationOption {
 }
 
 model Option {
-  id          String @id @default(uuid())
+  id          String  @id @default(uuid())
   optionName  String
   displayName String
-  isActive Boolean @default(true)
+  isActive    Boolean @default(true)
 
   optionValue      OptionValue[]
   productVariation ProductVariationOption[]
 
   store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
   storeId String
+
+  isDeleted Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -132,6 +157,8 @@ model OptionValue {
   optionId String
 
   productVariation ProductVariationOption[]
+
+  isDeleted Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -149,6 +176,8 @@ model Image {
   store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
   storeId String
 
+  isDeleted Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -163,6 +192,8 @@ model Store {
   categories Category[]
   options    Option[]
   images     Image[]
+
+  isDeleted Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

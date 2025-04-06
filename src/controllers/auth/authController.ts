@@ -1,10 +1,10 @@
-import prisma from "../config/prisma";
+import prisma from "../../config/prisma";
 import bcrypt from 'bcrypt'
-import asyncWrapper from "../utils/asyncWrapper";
+import asyncWrapper from "../../utils/asyncWrapper";
 import { Request , Response } from 'express'
-import APIError from "../utils/APIError";
-import APIResponse from "../utils/APIResponse";
-import { generateAccessToken, generateRefershToken } from "../utils/generateTokens";
+import APIError from "../../utils/APIError";
+import APIResponse from "../../utils/APIResponse";
+import { generateAccessToken, generateRefershToken } from "../../utils/generateTokens";
 
 export const createUser = asyncWrapper( async(req: Request, res: Response) => {
     const { userName, email, password } = req.body
@@ -29,7 +29,7 @@ export const createUser = asyncWrapper( async(req: Request, res: Response) => {
         data: {
             username: userName,
             email,
-            password: hashedPassword
+            password: hashedPassword,
         },
         select: {
             id: true
@@ -50,6 +50,19 @@ export const createUser = asyncWrapper( async(req: Request, res: Response) => {
         const accessToken = generateAccessToken({userId: user.id, storeId: store.id})
         const refreshToken = generateRefershToken({userId: user.id, storeId: store.id})
 
+        const hashedRefreshToken = await bcrypt.hash(refreshToken, 10)
+        
+        await prisma.refreshToken.create({
+            data: {
+                userId: user.id,
+                token: hashedRefreshToken,
+            }
+        })
+
+        res.cookie('token', {accessToken, refreshToken}, {
+            httpOnly: true,
+            secure: true, 
+        })
         return APIResponse.created(res, 'user created successfully', { accessToken, refreshToken})
     }
 
@@ -78,6 +91,25 @@ export const login = asyncWrapper(  async(req: Request, res: Response) => {
     }
     const accessToken = generateAccessToken({userId: user.id, storeId: user.store?.id})
     const refreshToken = generateRefershToken({userId: user.id, storeId: user.store?.id})
+
+    const hashedRefreshToken = await bcrypt.hash(refreshToken, 10)
+        
+    await prisma.refreshToken.create({
+        data: {
+            userId: user.id,
+            token: hashedRefreshToken,
+        }
+    })
+
+    res.cookie('token', {accessToken, refreshToken}, {
+        httpOnly: true,
+        secure: true, 
+    })
+
+    res.cookie('token', {accessToken, refreshToken}, {
+        httpOnly: true,
+        secure: true, 
+    })
 
     return APIResponse.created(res, 'user created successfully', { accessToken, refreshToken})
 
