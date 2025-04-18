@@ -7,9 +7,9 @@ import APIResponse from "../../utils/APIResponse";
 import { generateAccessToken, generateRefershToken } from "../../utils/generateTokens";
 
 export const createUser = asyncWrapper( async(req: Request, res: Response) => {
-    const { userName, email, password } = req.body
+    const { username, email, password } = req.body
 
-    if(!userName || !email || !password){
+    if(!username || !email || !password){
         throw APIError.badRequest('all fields are required')
     }
 
@@ -27,7 +27,7 @@ export const createUser = asyncWrapper( async(req: Request, res: Response) => {
 
     const user = await prisma.user.create({
         data: {
-            username: userName,
+            username,
             email,
             password: hashedPassword,
         },
@@ -61,7 +61,7 @@ export const createUser = asyncWrapper( async(req: Request, res: Response) => {
 
         res.cookie('token', {accessToken, refreshToken}, {
             httpOnly: true,
-            secure: true, 
+            secure: false, 
         })
         return APIResponse.created(res, 'user created successfully', { accessToken, refreshToken})
     }
@@ -103,12 +103,7 @@ export const login = asyncWrapper(  async(req: Request, res: Response) => {
 
     res.cookie('token', {accessToken, refreshToken}, {
         httpOnly: true,
-        secure: true, 
-    })
-
-    res.cookie('token', {accessToken, refreshToken}, {
-        httpOnly: true,
-        secure: true, 
+        secure: false, 
     })
 
     return APIResponse.created(res, 'user created successfully', { accessToken, refreshToken})

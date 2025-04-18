@@ -27,6 +27,21 @@ interface ProductData {
     baseCategoryId: string
 }
 
+interface VariationInput {
+  id?: string; // optional – if undefined, it’s a new variation
+  variationName: string;
+  stock: number;
+  costPerUnit: number;
+  isSellable: boolean;
+  sku?: string;
+  images: string[]; // array of image IDs
+}
+
+interface UpdateProductVariations {
+  productId: string,
+  updatedVariations: VariationInput[]
+}
+
 // const encodeAndDecodeCursor = () => {
 
 // }
@@ -104,6 +119,22 @@ const createVariations = async (
       ));
 };
 
+const deepEqual = (a: any, b: any): boolean => {
+  if (a === b) return true;
+
+  if (typeof a !== 'object' || typeof b !== 'object' || a == null || b == null) {
+    return false;
+  }
+
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+
+  if (keysA.length !== keysB.length) return false;
+
+  return keysA.every(key => deepEqual(a[key], b[key]));
+}
+
+
 
 export const createProduct = asyncWrapper(async (req: Request, res: Response) => {
   const { productData, variationData } = req.body;
@@ -146,7 +177,6 @@ export const createProduct = asyncWrapper(async (req: Request, res: Response) =>
   APIResponse.created(res, '', result);
 });
 
-
 export const getAllProducts = asyncWrapper( async(req: Request, res: Response) => { 
 
     const { limit } = req.params
@@ -160,7 +190,18 @@ export const getAllProducts = asyncWrapper( async(req: Request, res: Response) =
         },
         include: {
           images: true,
-          productVariation: true
+          baseCategory: true,
+          productVariation: {
+            include: {
+              images: true,
+              option: {
+                include: {
+                  option: true,
+                  optionValue: true
+                }
+              }
+            }
+          },
         },
         take,
         ...(cursor && {
@@ -170,10 +211,264 @@ export const getAllProducts = asyncWrapper( async(req: Request, res: Response) =
         orderBy: { id: 'asc'}
     })
 
-    return APIResponse.success(res, '', products)
-})
+    const newCursor = products[products.length - 1]?.id
 
-export const updateProduct = asyncWrapper( async(req: Request, res: Response) => {
-       
-})
+    return APIResponse.success(res, '', { products, cursor: newCursor})
+});
 
+export const getProductById = asyncWrapper( async(req: Request, res: Response) => {
+  const { productId } = req.params
+
+    const product = await prisma.product.findUnique({
+        where: {
+            id: productId,
+            storeId: req.user!.storeId
+        },
+        include: {
+          images: true,
+          productVariation: {
+            include: {
+              images: true,
+              option: {
+                include: {
+                  option: true,
+                  optionValue: true
+                }
+              }
+            }
+          },
+        },
+    })
+
+    return APIResponse.success(res, '', product)
+});
+
+// export const updateProductVariations = asyncWrapper(async (req: Request, res: Response) => {
+
+
+//   const {productId, updatedVariations} = req.body
+
+//   const existingVariations = await prisma.productVariation.findMany({
+//     where: {
+//       productId,
+//       isDeleted: false,
+//     },
+//     select: { id: true },
+//   });
+
+//   const existingVariationIds = existingVariations.map(v => v.id);
+//   const updatedVariationIds = updatedVariations.map(v => v.id).filter(Boolean) as string[];
+
+//   const variationsToDelete = existingVariationIds.filter(id => !updatedVariationIds.includes(id));
+//   const variationsToUpdate = updatedVariations.filter(v => v.id && existingVariationIds.includes(v.id));
+//   const variationsToCreate = updatedVariations.filter(v => !v.id);
+
+//   await prisma.$transaction(async (tx) => {
+//     // 1. Soft delete removed variations
+//     await Promise.all(
+//       variationsToDelete.map(id =>
+//         tx.productVariation.update({
+//           where: { id },
+//           data: { isDeleted: true },
+//         })
+//       )
+//     );
+
+//     // 2. Update existing variations
+//     await Promise.all(
+//       variationsToUpdate.map(variation =>
+//         tx.productVariation.update({
+//           where: { id: variation.id! },
+//           data: {
+//             variationName: variation.variationName,
+//             stockQuantity: variation.stock,
+//             price: variation.costPerUnit,
+//             isSellable: variation.isSellable,
+//             sku: variation.sku ?? `SKU-${variation.id!.slice(0, 6)}`,
+//             images: {
+//               set: variation.images.map(imageId => ({ id: imageId })),
+//             },
+//           },
+//         })
+//       )
+//     );
+
+//     // 3. Create new variations
+//     await Promise.all(
+//       variationsToCreate.map(variation =>
+//         tx.productVariation.create({
+//           data: {
+//             id: uuidv4(),
+//             productId,
+//             variationName: variation.variationName,
+//             stockQuantity: variation.stock,
+//             price: variation.costPerUnit,
+//             isSellable: variation.isSellable,
+//             isActive: true,
+//             isDeleted: false,
+//             // sku: `SKU-${uuidv4().slice(0, 6)}`,
+//             images: {
+//               connect: variation.images.map(imageId => ({ id: imageId })),
+//             },
+//           },
+//         })
+//       )
+//     );
+//   });
+// });
+
+export const updateProductVariations2 = asyncWrapper(async (req: Request<{}, {}, UpdateProductVariations>, res: Response) => {
+  const {productId, updatedVariations} = req.body 
+  const existingVariations = await prisma.productVariation.findMany({
+    where: {
+      productId,
+      isDeleted: false,
+    },
+    select: { id: true },
+  });
+  
+  const existingVariationIds = existingVariations.map(v => v.id);
+  const updatedVariationIds = updatedVariations
+    .map(v => v.id)
+    .filter(Boolean) as string[];
+  
+  const variationsToDelete = existingVariationIds.filter(id => !updatedVariationIds.includes(id));
+  const variationsToUpdate = updatedVariations.filter(v => v.id && existingVariationIds.includes(v.id));
+  const variationsToCreate = updatedVariations.filter(v => !v.id);
+  
+  await prisma.$transaction(async (tx) => {
+    // 1. Soft delete removed variations - batch operation
+    if (variationsToDelete.length > 0) {
+      await tx.productVariation.updateMany({
+        where: { 
+          id: { in: variationsToDelete },
+          productId // Extra safety check
+        },
+        data: { isDeleted: true }
+      });
+    }
+    
+    // 2. Handle updates
+    if (variationsToUpdate.length > 0) {
+      // 2a. Update basic fields in batches where possible
+      const basicUpdateMap = new Map<string, string[]>();
+      
+      for (const variation of variationsToUpdate) {
+        const updateData = {
+          variationName: variation.variationName,
+          stockQuantity: variation.stock,
+          price: variation.costPerUnit,
+          isSellable: variation.isSellable,
+          sku: variation.sku ?? `SKU-${variation.id!.slice(0, 6)}`
+        };
+        
+        const key = JSON.stringify(updateData);
+        if (!basicUpdateMap.has(key)) {
+          basicUpdateMap.set(key, []);
+        }
+        basicUpdateMap.get(key)!.push(variation.id!);
+      }
+      
+      // Execute batch updates
+      const basicUpdatePromises = Array.from(basicUpdateMap.entries()).map(
+        ([dataJson, ids]) => 
+          tx.productVariation.updateMany({
+            where: { id: { in: ids } },
+            data: JSON.parse(dataJson)
+          })
+      );
+      
+      await Promise.all(basicUpdatePromises);
+      
+      // 2b. Handle image relationships separately
+      const imageUpdatePromises = variationsToUpdate.map(variation => 
+        tx.productVariation.update({
+          where: { id: variation.id! },
+          data: {
+            images: {
+              set: variation.images.map(imageId => ({ id: imageId }))
+            }
+          }
+        })
+      );
+      
+      await Promise.all(imageUpdatePromises);
+    }
+    
+    // 3. Create new variations
+    if (variationsToCreate.length > 0) {
+      // 3a. First create the variations without images
+      const newVariationsData = variationsToCreate.map(variation => ({
+        id: uuidv4(),
+        productId,
+        variationName: variation.variationName,
+        stockQuantity: variation.stock,
+        price: variation.costPerUnit,
+        isSellable: variation.isSellable,
+        isActive: true,
+        isDeleted: false,
+        sku: variation.sku ?? `SKU-${uuidv4().slice(0, 6)}`
+      }));
+      
+      await tx.productVariation.createMany({
+        data: newVariationsData
+      });
+      
+      // 3b. Retrieve the newly created variations to get their IDs
+      const newVariations = await tx.productVariation.findMany({
+        where: {
+          productId,
+          id: { 
+            in: newVariationsData.map(v => v.id) 
+          }
+        },
+        select: { id: true }
+      });
+      
+      // 3c. Connect images to each variation
+      const imageConnectPromises = newVariations.map((newVar, index) => {
+        const imageIds = variationsToCreate[index].images;
+        if (!imageIds.length) return Promise.resolve();
+        
+        return tx.productVariation.update({
+          where: { id: newVar.id },
+          data: {
+            images: {
+              connect: imageIds.map(imgId => ({ id: imgId }))
+            }
+          }
+        });
+      });
+      
+      await Promise.all(imageConnectPromises);
+    }
+  });
+});
+
+export const deleteProductImage = asyncWrapper( async(req: Request, res: Response) => {
+  const { productId } = req.params
+  const { images } = req.body
+
+  if(!productId){
+    throw APIError.badRequest('productId is required in params')
+  }
+
+  if(!images){
+    throw APIError.badRequest('Image ID is required in images array')
+  }
+
+  if(images.length === 0){
+    return APIResponse.success(res, 'Images successfully removed', null)
+  }
+
+  await prisma.product.update({
+    where: { id: productId },
+    data: {
+      images: {
+        disconnect: images.map((id: string) => ({id}))
+      }
+    }
+  })
+
+  return APIResponse.success(res, 'Images successfully removed', null)
+})

@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { auth } from "../middlewares/authMiddelware";
-import { getProductVariations } from "../controllers/variationController";
+import { getVariations } from "../controllers/variationController";
 
 const router = Router()
 
 router.route('/:productId')
-    .get(auth, getProductVariations)
+    .get(auth, getVariations)
 
 export default router

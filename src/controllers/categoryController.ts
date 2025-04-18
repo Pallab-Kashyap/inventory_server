@@ -44,7 +44,48 @@ function buildCategoryTree(categories: RawCategory[]): CategoryTree[] {
   return tree;
 }
 
+async function getAllDescendantCategories(parentId: string): Promise<RawCategory[]> {
+  const allCategories: RawCategory[] = [];
 
+  async function recurse(currentId: string) {
+    const children = await prisma.category.findMany({
+      where: { parentCategoryId: currentId },
+      select: {
+        id: true,
+        categoryName: true,
+        displayName: true,
+        nestingName: true,
+        isActive: true,
+        parentCategoryId: true,
+      },
+    });
+
+    for (const child of children) {
+      allCategories.push(child);
+      await recurse(child.id); // Go deeper
+    }
+  }
+
+  // Push parent too (optional: comment out if not needed)
+  const parent = await prisma.category.findUnique({
+    where: { id: parentId },
+    select: {
+      id: true,
+      categoryName: true,
+      displayName: true,
+      nestingName: true,
+      isActive: true,
+      parentCategoryId: true,
+    },
+  });
+
+  if (parent) {
+    allCategories.push(parent);
+    await recurse(parentId);
+  }
+
+  return allCategories;
+}
 
 export const createCategory = asyncWrapper(async (req: Request, res: Response) => {
   const { categoryName, parentCategoryId, displayName } = req.body
@@ -114,4 +155,36 @@ export const getCategories = asyncWrapper( async(req: Request, res: Response) =>
 
   // Send the hierarchical response.
   return APIResponse.success(res, 'Fetched successfully', categoryTree);
+})
+
+export const getSubCategories = asyncWrapper( async(req: Request, res: Response) => {
+    const { parentId } = req.params;
+  
+    const allCategories = await getAllDescendantCategories(parentId);
+  
+    const categoryTree = buildCategoryTree(allCategories);
+  
+    return APIResponse.success(res, "Fetched category hierarchy", categoryTree);
+
+})
+
+export const updateCategory = asyncWrapper( async(req: Request, res: Response) => {
+  const { categoryId } = req.params
+
+  const { categoryName, displayName, parentCategoryId } = req.body;
+
+  if(categoryName){
+    
+    
+      const allCategories = await getAllDescendantCategories(categoryId);
+    
+      const categoryTree = buildCategoryTree(allCategories);
+    
+      return APIResponse.success(res, "Fetched category hierarchy", categoryTree);
+  }else{
+    await prisma.category.update({
+      where: { id: categoryId},
+      data: { ...req.body }
+    })
+  }
 })

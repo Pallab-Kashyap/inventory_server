@@ -25,7 +25,7 @@ export const uploadImage = asyncWrapper(async (req: Request, res: Response) => {
             storeId,
             url,
             publicId,
-            imageName
+            imageName: imageName || req.file?.filename
         }
     })
 
@@ -44,7 +44,8 @@ export const getAllImages = asyncWrapper( async(req: Request, res: Response) => 
     
     const images = await prisma.image.findMany({
         where: {
-            storeId: req.user?.storeId
+            storeId: req.user?.storeId,
+            isDeleted: false
         },
         select: {
             id: true,
@@ -57,7 +58,12 @@ export const getAllImages = asyncWrapper( async(req: Request, res: Response) => 
 })
 
 export const deleteImage = asyncWrapper( async(req: Request, res: Response) => {
+    await prisma.image.update({
+        where: { id: req.params.imageId},
+        data: { isDeleted: true }
+    })
     
+    APIResponse.success(res, "Image deleted", null)
 })
 
 
